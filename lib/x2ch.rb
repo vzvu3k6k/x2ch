@@ -86,8 +86,17 @@ module X2CH
 		end
 
 		def posts(if_modified_since = nil, range = nil)
-			res = Dat.download(@url + "dat/" + @dat, if_modified_since, range)
-			ArrayResponse.new(Dat.parse(res), res.status, res.last_modified, res.content_encoding, res.body_size)
+			case @url
+			when /machi.to/
+				server, bbs = @url.split("/")[2..3]
+				dat_url = "http://" + [server, "bbs/offlaw.cgi", bbs, dat[/^\d+/]].join("/")
+				res = Dat.download(dat_url, if_modified_since, range)
+				mode = :machibbs
+			else
+				res = Dat.download(@url + "dat/" + @dat, if_modified_since, range)
+				mode = :"2ch"
+			end
+			ArrayResponse.new(Dat.parse(res, mode), res.status, res.last_modified, res.content_encoding, res.body_size)
 		end
 
 		def each(&blk)
@@ -176,7 +185,7 @@ module X2CH
 
 				next unless category
 
-				b = l.match(/<A HREF=(http:\/\/.*(?:\.2ch\.net|\.bbspink\.com).+\/)>(.+)<\/A>/).to_a
+				b = l.match(/<A HREF=(http:\/\/.*(?:\.2ch\.net|\.bbspink\.com|\.machi\.to).+\/)(?: TARGET=_blank)?>(.+)<\/A>/).to_a
 				if b[0]
 					next if IGNORE_BOARDS.include?(b[2])
 
@@ -196,7 +205,12 @@ module X2CH
 		def self.parse(url, subject)
 			threads = []
 			subject.each_line{|l|
-				m = l.match(/^(\d+\.dat)<>(.+)\((\d+)\)$/).to_a
+				case @url
+				when /machi.to/
+					m = l.match(/^(\d+\.cgi)(?:<>|,)(.+)\((\d+)\)$/).to_a
+				else
+					m = l.match(/^(\d+\.cgi)(?:<>|,)(.+)\((\d+)\)$/).to_a
+				end
 				if m[0]
 					threads << Thread.new(url, m[1], m[2], m[3].to_i)
 				end
@@ -210,14 +224,24 @@ module X2CH
 			Agent.download(url, if_modified_since, range)
 		end
 		
-		def self.parse(dat)
+		def self.parse(dat, mode = :"2ch")
 			posts = []
-			dat.each_line{|l|
-				m = l.match(/^(.+?)<>(.*?)<>(.*?)<>(.+)<>.*$/).to_a
-				if m[0]
-					posts << Post.new(m[1], m[2], m[3], m[4])
-				end
-			}
+			case mode
+			when :"2ch"
+				dat.each_line{|l|
+					m = l.match(/^(.+?)<>(.*?)<>(.*?)<>(.+)<>.*$/).to_a
+					if m[0]
+						posts << Post.new(m[1], m[2], m[3], m[4])
+					end
+				}
+			when :machibbs
+				dat.each_line{|l|
+					m = l.match(/^.+?<>(.*?)<>(.*?)<>(.*?)<>(.+)<>.*$/).to_a
+					if m[0]
+						posts << Post.new(m[1], m[2], m[3], m[4])
+					end
+				}
+			end
 			posts
 		end
 	end
